@@ -122,6 +122,7 @@ pub fn get_all_adapters(custom_adapters: Option<Vec<CustomAdapterConfig>>) -> Ad
         //Rc::new(sqlite::SqliteAdapter::new()),
         // Rc::new(pdfpages::PdfPagesAdapter::new()),
         // Rc::new(tesseract::TesseractAdapter::new()),
+        // Rc::new(gron::GronAdapter::new()),
     ];
     /*adapters.extend(
         builtin_spawning_adapters
