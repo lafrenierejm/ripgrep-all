@@ -121,6 +121,17 @@
         packages = {
           inherit rga; # `nix build .#rga`
           default = rga; # `nix build`
+
+          oci = pkgs.dockerTools.buildImage {
+            name = "ripgrep-all";
+            tag = "all";
+
+            config = {
+              Entrypoint = [ "${rga}/bin/rga" ];
+              WorkingDir = "/data";
+              Volumes = { "/data" = { }; };
+            };
+          };
         };
 
         # `nix run`
