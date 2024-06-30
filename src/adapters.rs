@@ -3,6 +3,7 @@ pub mod decompress;
 pub mod ffmpeg;
 pub mod mbox;
 pub mod postproc;
+use std::collections::HashSet;
 use std::sync::Arc;
 pub mod sqlite;
 pub mod tar;
@@ -12,6 +13,7 @@ use crate::{adapted_iter::AdaptedFilesIterBox, config::RgaConfig, matching::*};
 use anyhow::{format_err, Context, Result};
 use async_trait::async_trait;
 use custom::CustomAdapterConfig;
+use custom::CustomIdentifiers;
 use custom::BUILTIN_SPAWNING_ADAPTERS;
 use log::*;
 use tokio::io::AsyncRead;
@@ -35,10 +37,10 @@ pub struct AdapterMeta {
     /// indicates whether this adapter can descend (=call rga_preproc again). if true, the cache key needs to include the list of active adapters
     pub recurses: bool,
     /// list of matchers (interpreted as a OR b OR ...)
-    pub fast_matchers: Vec<FastFileMatcher>,
+    pub fast_matchers: Option<HashSet<FastFileMatcher>>,
     /// list of matchers when we have mime type detection active (interpreted as ORed)
     /// warning: this *overrides* the fast matchers
-    pub slow_matchers: Option<Vec<FileMatcher>>,
+    pub slow_matchers: Option<HashSet<FileMatcher>>,
     /// if true, slow_matchers is merged with fast matchers if accurate is enabled
     /// for example, in sqlite you want this disabled since the db extension can mean other things and the mime type matching is very accurate for sqlite.
     /// but for tar you want it enabled, since the tar extension is very accurate but the tar mime matcher can have false negatives
@@ -109,7 +111,10 @@ pub struct AdaptInfo {
 /// (enabledAdapters, disabledAdapters)
 type AdaptersTuple = (Vec<Arc<dyn FileAdapter>>, Vec<Arc<dyn FileAdapter>>);
 
-pub fn get_all_adapters(custom_adapters: Option<Vec<CustomAdapterConfig>>) -> AdaptersTuple {
+pub fn get_all_adapters(
+    custom_identifiers: CustomIdentifiers,
+    custom_adapters: Option<Vec<CustomAdapterConfig>>,
+) -> AdaptersTuple {
     // order in descending priority
     let mut adapters: Vec<Arc<dyn FileAdapter>> = vec![];
     if let Some(custom_adapters) = custom_adapters {
@@ -120,7 +125,10 @@ pub fn get_all_adapters(custom_adapters: Option<Vec<CustomAdapterConfig>>) -> Ad
 
     let internal_adapters: Vec<Arc<dyn FileAdapter>> = vec![
         Arc::new(PostprocPageBreaks::default()),
-        Arc::new(ffmpeg::FFmpegAdapter::new()),
+        Arc::new(ffmpeg::FFmpegAdapter::new(
+            custom_identifiers.ffmpeg.extensions,
+            custom_identifiers.ffmpeg.mimetypes,
+        )),
         Arc::new(zip::ZipAdapter::new()),
         Arc::new(decompress::DecompressAdapter::new()),
         Arc::new(mbox::MboxAdapter::new()),
@@ -148,10 +156,12 @@ pub fn get_all_adapters(custom_adapters: Option<Vec<CustomAdapterConfig>>) -> Ad
  *  - "+a,b" means use default list but also a and b (a,b will be prepended to the list so given higher priority)
  */
 pub fn get_adapters_filtered<T: AsRef<str>>(
+    custom_identifiers: CustomIdentifiers,
     custom_adapters: Option<Vec<CustomAdapterConfig>>,
     adapter_names: &[T],
 ) -> Result<Vec<Arc<dyn FileAdapter>>> {
-    let (def_enabled_adapters, def_disabled_adapters) = get_all_adapters(custom_adapters);
+    let (def_enabled_adapters, def_disabled_adapters) =
+        get_all_adapters(custom_identifiers, custom_adapters);
     let adapters = if !adapter_names.is_empty() {
         let adapters_map: HashMap<_, _> = def_enabled_adapters
             .iter()

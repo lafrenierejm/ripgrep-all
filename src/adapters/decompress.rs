@@ -3,40 +3,30 @@ use crate::adapted_iter::one_file;
 use super::*;
 
 use anyhow::Result;
-use lazy_static::lazy_static;
+use std::path::{Path, PathBuf};
 use tokio::io::BufReader;
 
-use std::path::{Path, PathBuf};
+static EXTENSIONS_GZ: HashSet<&str> = ["als", "gz", "tgz"].into();
+static EXTENSIONS_BZ2: HashSet<&str> = ["bz2", "tbz", "tbz2"].into();
+static EXTENSIONS_XZ: HashSet<&str> = ["xz"].into();
+static EXTENSIONS_ZST: HashSet<&str> = ["zst"].into();
+pub static EXTENSIONS: HashSet<&str> =
+    [EXTENSIONS_GZ, EXTENSIONS_BZ2, EXTENSIONS_XZ, EXTENSIONS_ZST]
+        .iter()
+        .cloned()
+        .reduce(|acc, e| acc.union(&e).cloned().collect())
+        .unwrap_or_default();
 
-static EXTENSIONS: &[&str] = &["als", "bz2", "gz", "tbz", "tbz2", "tgz", "xz", "zst"];
-static MIME_TYPES: &[&str] = &[
-    "application/gzip",
-    "application/x-bzip",
-    "application/x-xz",
-    "application/zstd",
-];
-lazy_static! {
-    static ref METADATA: AdapterMeta = AdapterMeta {
-        name: "decompress".to_owned(),
-        version: 1,
-        description:
-            "Reads compressed file as a stream and runs a different extractor on the contents."
-                .to_owned(),
-        recurses: true,
-        fast_matchers: EXTENSIONS
-            .iter()
-            .map(|s| FastFileMatcher::FileExtension(s.to_string()))
-            .collect(),
-        slow_matchers: Some(
-            MIME_TYPES
-                .iter()
-                .map(|s| FileMatcher::MimeType(s.to_string()))
-                .collect()
-        ),
-        disabled_by_default: false,
-        keep_fast_matchers_if_accurate: true
-    };
-}
+static MIMETYPES_GZ: HashSet<&str> = ["application/gzip"].into();
+static MIMETYPES_BZ2: HashSet<&str> = ["application/x-bzip"].into();
+static MIMETYPES_XZ: HashSet<&str> = ["application/x-xz"].into();
+static MIMTEYPTES_ZST: HashSet<&str> = ["application/zstd"].into();
+pub static MIMETYPES: HashSet<&str> = [MIMETYPES_GZ, MIMETYPES_BZ2, MIMETYPES_XZ, MIMTEYPTES_ZST]
+    .iter()
+    .cloned()
+    .reduce(|acc, e| acc.union(&e).cloned().collect())
+    .unwrap_or_default();
+
 #[derive(Default)]
 pub struct DecompressAdapter;
 
@@ -47,7 +37,26 @@ impl DecompressAdapter {
 }
 impl GetMetadata for DecompressAdapter {
     fn metadata(&self) -> &AdapterMeta {
-        &METADATA
+        return &AdapterMeta {
+            name: "decompress".to_owned(),
+            version: 1,
+            description:
+                "Reads compressed file as a stream and runs a different extractor on the contents."
+                    .to_owned(),
+            recurses: true,
+            fast_matchers: EXTENSIONS
+                .iter()
+                .map(|s| FastFileMatcher::FileExtension(s.to_string()))
+                .collect(),
+            slow_matchers: Some(
+                MIMETYPES
+                    .iter()
+                    .map(|s| FileMatcher::MimeType(s.to_string()))
+                    .collect(),
+            ),
+            disabled_by_default: false,
+            keep_fast_matchers_if_accurate: true,
+        };
     }
 }
 

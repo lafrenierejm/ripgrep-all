@@ -23,6 +23,62 @@ use tokio::process::Command;
 
 use tokio_util::io::StreamReader;
 // mostly the same as AdapterMeta + SpawningFileAdapter
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema, Default, PartialEq, Clone)]
+pub struct CustomIdentifier {
+    /// the file extensions this adapter supports. For example ["gz", "tgz"]
+    pub extensions: Option<HashSet<String>>,
+    /// if not null and --rga-accurate is enabled, mime type matching is used instead of file name matching
+    pub mimetypes: Option<HashSet<String>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema, PartialEq, Clone)]
+pub struct CustomIdentifiers {
+    /// The identifiers to process as bz2 archives
+    pub bz2: CustomIdentifier,
+    /// The identifiers to process via ffmpeg
+    pub ffmpeg: CustomIdentifier,
+    /// The identifiers to process as gz archives
+    pub gz: CustomIdentifier,
+    /// The identifiers to process as xz archives
+    pub xz: CustomIdentifier,
+    /// The identifiers to process as zip archives
+    pub zip: CustomIdentifier,
+    /// The identifiers to process as zst archives
+    pub zst: CustomIdentifier,
+}
+
+impl Default for CustomIdentifiers {
+    fn default() -> CustomIdentifiers {
+        CustomIdentifiers {
+            ffmpeg: CustomIdentifier {
+                extensions: ffmpeg::EXTENSIONS.into(),
+                mimetypes: Option::None,
+            },
+            gz: CustomIdentifier {
+                extensions: Some((&["als", "gz", "tgz"])),
+                mimetypes: Some(strs(&["application/gzip"])),
+            },
+            bz2: CustomIdentifier {
+                extensions: Some(strs(&["bz2", "tbz", "tbz2"])),
+                mimetypes: Some(strs(&["application/x-bzip"])),
+            },
+            xz: CustomIdentifier {
+                extensions: Some(strs(&["xz"])),
+                mimetypes: Some(strs(&["application/x-xz"])),
+            },
+            zst: CustomIdentifier {
+                extensions: Some(strs(&["zst"])),
+                mimetypes: Some(strs(&["application/zstd"])),
+            },
+            zip: CustomIdentifier {
+                extensions: Some(strs(&["zip", "jar", "xpi", "kra"])),
+                mimetypes: Some(strs(&["application/zip"])),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema, Default, PartialEq, Clone)]
 pub struct CustomAdapterConfig {
     /// the unique identifier and name of this adapter. Must only include a-z, 0-9, _
