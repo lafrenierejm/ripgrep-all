@@ -12,7 +12,7 @@ use std::iter::Iterator;
 use std::sync::Arc;
 
 // match only based on file path
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum FastFileMatcher {
     // MimeType(Regex),
     /**
@@ -24,7 +24,7 @@ pub enum FastFileMatcher {
     // todo: maybe allow matching a directory (e.g. /var/lib/postgres)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum FileMatcher {
     /// any type of fast matcher
     Fast(FastFileMatcher),
