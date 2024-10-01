@@ -12,8 +12,12 @@ use std::process::Command;
 use std::time::Instant;
 
 fn list_adapters(args: RgaConfig) -> Result<()> {
-    let (enabled_adapters, disabled_adapters) =
-        get_all_adapters(args.custom_identifiers, args.custom_adapters);
+    let (enabled_adapters, disabled_adapters) = get_all_adapters(
+        args.custom_identifiers,
+        args.custom_adapters,
+        &args.adapters_enable,
+        &args.adapters_disable,
+    );
 
     println!("Adapters:\n");
     let print = |adapter: std::sync::Arc<dyn FileAdapter>| {
@@ -89,6 +93,8 @@ fn main() -> anyhow::Result<()> {
     let adapters = get_adapters_filtered(
         config.custom_identifiers.clone(),
         config.custom_adapters.clone(),
+        &config.adapters_enable,
+        &config.adapters_disable,
         &config.adapters,
     )?;
 

@@ -35,6 +35,8 @@ async fn choose_adapter(
     let active_adapters = get_adapters_filtered(
         config.custom_identifiers.clone(),
         config.custom_adapters.clone(),
+        &config.adapters_enable,
+        &config.adapters_disable,
         &config.adapters,
     )?;
     let adapters = adapter_matcher(&active_adapters, config.accurate)?;

@@ -135,9 +135,18 @@ pub struct AdaptInfo {
 /// (enabledAdapters, disabledAdapters)
 type AdaptersTuple = (Vec<Arc<dyn FileAdapter>>, Vec<Arc<dyn FileAdapter>>);
 
+/// ```
+/// # use ripgrep_all::adapters::get_all_adapters;
+/// let enable = &[];
+/// let disable = &[String::from("ffmpeg")];
+/// let (_, disabled) = get_all_adapters(None, None, enable, disable);
+/// assert!(!disabled.is_empty())
+/// ```
 pub fn get_all_adapters(
     custom_identifiers: Option<CustomIdentifiers>,
     custom_adapters: Option<Vec<CustomAdapterConfig>>,
+    adapters_enable: &[String],
+    adapters_disable: &[String],
 ) -> AdaptersTuple {
     // decompress
     let mut bz2_extensions = strs(decompress::EXTENSIONS_BZ2);
@@ -287,9 +296,10 @@ pub fn get_all_adapters(
     );
     adapters.extend(internal_adapters);
 
-    adapters
-        .into_iter()
-        .partition(|e| !e.metadata().disabled_by_default)
+    adapters.into_iter().partition(|e| {
+        !adapters_disable.contains(&e.metadata().name)
+            && (adapters_enable.contains(&e.metadata().name) || !e.metadata().disabled_by_default)
+    })
 }
 
 /**
@@ -303,10 +313,16 @@ pub fn get_all_adapters(
 pub fn get_adapters_filtered<T: AsRef<str>>(
     custom_identifiers: Option<CustomIdentifiers>,
     custom_adapters: Option<Vec<CustomAdapterConfig>>,
+    adapters_enable: &[String],
+    adapters_disable: &[String],
     adapter_names: &[T],
 ) -> Result<Vec<Arc<dyn FileAdapter>>> {
-    let (def_enabled_adapters, def_disabled_adapters) =
-        get_all_adapters(custom_identifiers, custom_adapters);
+    let (def_enabled_adapters, def_disabled_adapters) = get_all_adapters(
+        custom_identifiers,
+        custom_adapters,
+        adapters_enable,
+        adapters_disable,
+    );
     let adapters = if !adapter_names.is_empty() {
         let adapters_map: HashMap<_, _> = def_enabled_adapters
             .iter()
@@ -323,9 +339,9 @@ pub fn get_adapters_filtered<T: AsRef<str>>(
                 name = &name[1..];
                 adapters = def_enabled_adapters.clone();
             } else if i == 0 && (name.starts_with('+')) {
+                additive = true;
                 name = &name[1..];
                 adapters = def_enabled_adapters.clone();
-                additive = true;
             }
             if subtractive {
                 let inx = adapters
