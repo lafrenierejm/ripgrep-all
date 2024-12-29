@@ -11,6 +11,7 @@ use lazy_static::lazy_static;
 use log::debug;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
@@ -20,39 +21,17 @@ use tokio::process::Command;
 use tokio_util::io::StreamReader;
 // mostly the same as AdapterMeta + SpawningFileAdapter
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema, Default, PartialEq, Clone)]
-pub struct CustomIdentifier {
-    /// The file extensions this adapter supports, for example `["gz", "tgz"]`.
-    pub extensions: Option<Vec<String>>,
-    /// If not null and --rga-accurate is enabled, mimetype matching is used instead of file name matching.
-    pub mimetypes: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema, PartialEq, Clone)]
-pub struct CustomIdentifiers {
-    /// The identifiers to process as bz2 archives.
-    pub bz2: Option<CustomIdentifier>,
-    /// The identifiers to process as gz archives.
-    pub gz: Option<CustomIdentifier>,
-    /// The identifiers to process as xz archives.
-    pub xz: Option<CustomIdentifier>,
-    /// The identifiers to process as zst archives.
-    pub zst: Option<CustomIdentifier>,
-
-    /// The identifiers to process via ffmpeg.
-    pub ffmpeg: Option<CustomIdentifier>,
-
-    /// The identifiers to process as mbox files.
-    pub mbox: Option<CustomIdentifier>,
-
-    /// The identifiers to process as SQLite files.
-    pub sqlite: Option<CustomIdentifier>,
-
-    /// The identifiers to process as tar files.
-    pub tar: Option<CustomIdentifier>,
-
-    /// The identifiers to process as zip archives.
-    pub zip: Option<CustomIdentifier>,
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub enum Builtin {
+    Bz2,
+    Gz,
+    Xz,
+    Zst,
+    Ffmpeg,
+    Mbox,
+    Sqlite,
+    Tar,
+    Zip,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema, Default, PartialEq, Clone)]

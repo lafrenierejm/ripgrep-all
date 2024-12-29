@@ -12,8 +12,8 @@ use crate::{adapted_iter::AdaptedFilesIterBox, config::RgaConfig, matching::*};
 use anyhow::{format_err, Context, Result};
 use async_trait::async_trait;
 use custom::strs;
+use custom::Builtin;
 use custom::CustomAdapterConfig;
-use custom::CustomIdentifiers;
 use custom::BUILTIN_SPAWNING_ADAPTERS;
 use log::*;
 use tokio::io::AsyncRead;
@@ -135,108 +135,129 @@ pub struct AdaptInfo {
 /// (enabledAdapters, disabledAdapters)
 type AdaptersTuple = (Vec<Arc<dyn FileAdapter>>, Vec<Arc<dyn FileAdapter>>);
 
+static EMPTY_SLICE: &'static [&'static str] = &[];
+
 pub fn get_all_adapters(
-    custom_identifiers: Option<CustomIdentifiers>,
+    additional_extensions: &HashMap<&[&str], Builtin>,
     custom_adapters: Option<Vec<CustomAdapterConfig>>,
 ) -> AdaptersTuple {
-    let bz2_extensions = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.bz2.as_ref())
-        .and_then(|bz2| bz2.extensions.clone())
-        .unwrap_or_else(|| strs(decompress::EXTENSIONS_BZ2));
-    let bz2_mimetypes = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.bz2.as_ref())
-        .and_then(|bz2| bz2.mimetypes.clone())
-        .unwrap_or_else(|| strs(decompress::MIMETYPES_BZ2));
+    let mut extensions = additional_extensions.clone();
 
-    let gz_extensions = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.gz.as_ref())
-        .and_then(|gz| gz.extensions.clone())
-        .unwrap_or_else(|| strs(decompress::EXTENSIONS_GZ));
-    let gz_mimetypes = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.gz.as_ref())
-        .and_then(|gz| gz.mimetypes.clone())
-        .unwrap_or_else(|| strs(decompress::MIMETYPES_GZ));
+    for extension in decompress::EXTENSIONS_BZ2 {
+        extensions.try_insert(extension, Builtin::Bz2)
+    }
 
-    let xz_extensions = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.xz.as_ref())
-        .and_then(|xz| xz.extensions.clone())
-        .unwrap_or_else(|| strs(decompress::EXTENSIONS_XZ));
-    let xz_mimetypes = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.xz.as_ref())
-        .and_then(|xz| xz.mimetypes.clone())
-        .unwrap_or_else(|| strs(decompress::MIMETYPES_XZ));
+    let mut bz2_extensions: [&str] = [
+        decompress::EXTENSIONS_BZ2[..],
+        (additional_extensions
+            .get(&Builtin::Bz2)
+            .unwrap_or(&EMPTY_SLICE))[..],
+    ];
+    // .as_ref()
+    // .and_then(|ids| ids.bz2.as_ref())
+    // .and_then(|bz2| bz2.extensions.clone())
+    // .unwrap_or_else(|| strs(decompress::EXTENSIONS_BZ2));
+    // let bz2_mimetypes = additional_extensions
+    //     .as_ref()
+    //     .and_then(|ids| ids.bz2.as_ref())
+    //     .and_then(|bz2| bz2.mimetypes.clone())
+    //     .unwrap_or_else(|| strs(decompress::MIMETYPES_BZ2));
 
-    let zst_extensions = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.zst.as_ref())
-        .and_then(|zst| zst.extensions.clone())
-        .unwrap_or_else(|| strs(decompress::EXTENSIONS_ZST));
-    let zst_mimetypes = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.zst.as_ref())
-        .and_then(|zst| zst.mimetypes.clone())
-        .unwrap_or_else(|| strs(decompress::MIMETYPES_ZST));
+    let gz_extensions = [
+        decompress::EXTENSIONS_GZ[..],
+        (additional_extensions
+            .get(&Builtin::Gz)
+            .unwrap_or(&EMPTY_SLICE))[..],
+    ];
+    // let gz_mimetypes = additional_extensions
+    //     .as_ref()
+    //     .and_then(|ids| ids.gz.as_ref())
+    //     .and_then(|gz| gz.mimetypes.clone())
+    //     .unwrap_or_else(|| strs(decompress::MIMETYPES_GZ));
 
-    let ffmpeg_extensions = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.ffmpeg.as_ref())
-        .and_then(|ffmpeg| ffmpeg.extensions.clone())
-        .unwrap_or_else(|| strs(ffmpeg::EXTENSIONS));
-    let ffmpeg_mimetypes = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.ffmpeg.as_ref())
-        .and_then(|ffmpeg| ffmpeg.mimetypes.clone())
-        .unwrap_or_else(|| strs(ffmpeg::MIMETYPES));
+    let xz_extensions = [
+        decompress::EXTENSIONS_XZ[..],
+        (additional_extensions
+            .get(&Builtin::Xz)
+            .unwrap_or(&EMPTY_SLICE))[..],
+    ];
+    // let xz_mimetypes = additional_extensions
+    //     .as_ref()
+    //     .and_then(|ids| ids.xz.as_ref())
+    //     .and_then(|xz| xz.mimetypes.clone())
+    //     .unwrap_or_else(|| strs(decompress::MIMETYPES_XZ));
 
-    let mbox_extensions = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.mbox.as_ref())
-        .and_then(|mbox| mbox.extensions.clone())
-        .unwrap_or_else(|| strs(mbox::EXTENSIONS));
-    let mbox_mimetypes = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.mbox.as_ref())
-        .and_then(|mbox| mbox.mimetypes.clone())
-        .unwrap_or_else(|| strs(mbox::MIMETYPES));
+    let zst_extensions = [
+        decompress::EXTENSIONS_ZST[..],
+        (additional_extensions
+            .get(&Builtin::Zst)
+            .unwrap_or(&EMPTY_SLICE))[..],
+    ];
+    // let zst_mimetypes = additional_extensions
+    //     .as_ref()
+    //     .and_then(|ids| ids.zst.as_ref())
+    //     .and_then(|zst| zst.mimetypes.clone())
+    //     .unwrap_or_else(|| strs(decompress::MIMETYPES_ZST));
 
-    let sqlite_extensions = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.sqlite.as_ref())
-        .and_then(|sqlite| sqlite.extensions.clone())
-        .unwrap_or_else(|| strs(sqlite::EXTENSIONS));
-    let sqlite_mimetypes = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.sqlite.as_ref())
-        .and_then(|sqlite| sqlite.mimetypes.clone())
-        .unwrap_or_else(|| strs(sqlite::MIMETYPES));
+    let ffmpeg_extensions = [
+        ffmpeg::EXTENSIONS[..],
+        (additional_extensions
+            .get(&Builtin::Ffmpeg)
+            .unwrap_or(&EMPTY_SLICE))[..],
+    ];
+    // let ffmpeg_mimetypes = additional_extensions
+    //     .as_ref()
+    //     .and_then(|ids| ids.ffmpeg.as_ref())
+    //     .and_then(|ffmpeg| ffmpeg.mimetypes.clone())
+    //     .unwrap_or_else(|| strs(ffmpeg::MIMETYPES));
 
-    let tar_extensions = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.tar.as_ref())
-        .and_then(|tar| tar.extensions.clone())
-        .unwrap_or_else(|| strs(tar::EXTENSIONS));
-    let tar_mimetypes = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.tar.as_ref())
-        .and_then(|tar| tar.mimetypes.clone())
-        .unwrap_or_else(|| strs(tar::MIMETYPES));
+    let mbox_extensions = [
+        mbox::EXTENSIONS[..],
+        (additional_extensions
+            .get(&Builtin::Mbox)
+            .unwrap_or(&EMPTY_SLICE))[..],
+    ];
+    // let mbox_mimetypes = additional_extensions
+    //     .as_ref()
+    //     .and_then(|ids| ids.mbox.as_ref())
+    //     .and_then(|mbox| mbox.mimetypes.clone())
+    //     .unwrap_or_else(|| strs(mbox::MIMETYPES));
 
-    let zip_extensions = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.zip.as_ref())
-        .and_then(|zip| zip.extensions.clone())
-        .unwrap_or_else(|| strs(zip::EXTENSIONS));
-    let zip_mimetypes = custom_identifiers
-        .as_ref()
-        .and_then(|ids| ids.zip.as_ref())
-        .and_then(|zip| zip.mimetypes.clone())
-        .unwrap_or_else(|| strs(zip::MIMETYPES));
+    let sqlite_extensions = [
+        sqlite::EXTENSIONS[..],
+        (additional_extensions
+            .get(&Builtin::Sqlite)
+            .unwrap_or(&EMPTY_SLICE))[..],
+    ];
+    // let sqlite_mimetypes = additional_extensions
+    //     .as_ref()
+    //     .and_then(|ids| ids.sqlite.as_ref())
+    //     .and_then(|sqlite| sqlite.mimetypes.clone())
+    //     .unwrap_or_else(|| strs(sqlite::MIMETYPES));
+
+    let tar_extensions = [
+        tar::EXTENSIONS[..],
+        (additional_extensions
+            .get(&Builtin::Tar)
+            .unwrap_or(&EMPTY_SLICE))[..],
+    ];
+    // let tar_mimetypes = additional_extensions
+    //     .as_ref()
+    //     .and_then(|ids| ids.tar.as_ref())
+    //     .and_then(|tar| tar.mimetypes.clone())
+    //     .unwrap_or_else(|| strs(tar::MIMETYPES));
+
+    let zip_extensions = [
+        zip::EXTENSIONS[..],
+        (additional_extensions
+            .get(&Builtin::Zip)
+            .unwrap_or(&EMPTY_SLICE))[..],
+    ];
+    // let zip_mimetypes = additional_extensions
+    //     .as_ref()
+    //     .and_then(|ids| ids.zip.as_ref())
+    //     .and_then(|zip| zip.mimetypes.clone())
+    //     .unwrap_or_else(|| strs(zip::MIMETYPES));
 
     // order in descending priority
     let mut adapters: Vec<Arc<dyn FileAdapter>> = vec![];
@@ -300,12 +321,12 @@ pub fn get_all_adapters(
  *  - "+a,b" means use default list but also a and b (a,b will be prepended to the list so given higher priority)
  */
 pub fn get_adapters_filtered<T: AsRef<str>>(
-    custom_identifiers: Option<CustomIdentifiers>,
+    additional_extensions: &HashMap<&Builtin, &[&str]>,
     custom_adapters: Option<Vec<CustomAdapterConfig>>,
     adapter_names: &[T],
 ) -> Result<Vec<Arc<dyn FileAdapter>>> {
     let (def_enabled_adapters, def_disabled_adapters) =
-        get_all_adapters(custom_identifiers, custom_adapters);
+        get_all_adapters(additional_extensions, custom_adapters);
     let adapters = if !adapter_names.is_empty() {
         let adapters_map: HashMap<_, _> = def_enabled_adapters
             .iter()

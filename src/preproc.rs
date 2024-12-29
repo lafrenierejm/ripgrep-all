@@ -33,7 +33,7 @@ async fn choose_adapter(
     inp: &mut (impl AsyncBufRead + Unpin),
 ) -> Result<Option<(Arc<dyn FileAdapter>, FileMatcher, ActiveAdapters)>> {
     let active_adapters = get_adapters_filtered(
-        config.custom_identifiers.clone(),
+        config.additional_extensions.clone(),
         config.custom_adapters.clone(),
         &config.adapters,
     )?;
