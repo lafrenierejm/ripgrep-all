@@ -117,7 +117,10 @@
           src = ./.;
           hooks = {
             alejandra.enable = true;
-            rustfmt.enable = true;
+            rustfmt = {
+              enable = true;
+              package = craneLib.devShell {};
+            };
             typos = {
               enable = true;
               settings = {
@@ -139,10 +142,11 @@
 
       # `nix develop`
       devShells.default = craneLib.devShell {
-        inherit nativeBuildInputs runtimeInputs;
+        inherit nativeBuildInputs;
         inherit (self.checks.${system}.pre-commit) shellHook;
         inputsFrom = builtins.attrValues self.checks;
         buildInputs = self.checks.${system}.pre-commit.enabledPackages;
+        packages = runtimeInputs;
       };
     });
 }
