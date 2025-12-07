@@ -168,7 +168,10 @@ pub async fn owned_zip_iter_fs(ai: AdaptInfo) -> Result<AdaptedFilesIterBox> {
 
 #[cfg(test)]
 mod test {
-    use async_zip::{Compression, ZipEntryBuilder, write::ZipFileWriter};
+    use async_zip::base::write::ZipFileWriter;
+    use async_zip::{Compression, ZipEntryBuilder, ZipString};
+    use tokio::io::AsyncReadExt;
+    use tokio_util::compat::TokioAsyncWriteCompatExt;
 
     use super::*;
     use crate::{preproc::loop_adapt, test_utils::*};
@@ -176,15 +179,18 @@ mod test {
 
     #[async_recursion::async_recursion]
     async fn create_zip(fname: &str, content: &str, add_inner: bool) -> Result<Vec<u8>> {
-        let v = Vec::new();
-        let mut cursor = std::io::Cursor::new(v);
-        let mut zip = ZipFileWriter::new(&mut cursor);
+        let (w, mut r) = tokio::io::duplex(512 * 1024);
+        let mut zip = ZipFileWriter::new(w.compat_write());
 
-        let options = ZipEntryBuilder::new(fname.to_string(), Compression::Stored);
+        let options = ZipEntryBuilder::new(ZipString::from(fname.to_string()), Compression::Stored);
         zip.write_entry_whole(options, content.as_bytes()).await?;
+        dbg!(fname);
 
         if add_inner {
-            let opts = ZipEntryBuilder::new("inner.zip".to_string(), Compression::Stored);
+            let opts = ZipEntryBuilder::new(
+                ZipString::from("inner.zip".to_string()),
+                Compression::Stored,
+            );
             zip.write_entry_whole(
                 opts,
                 &create_zip("inner.txt", "inner text file", false).await?,
@@ -192,27 +198,65 @@ mod test {
             .await?;
         }
         zip.close().await?;
-        Ok(cursor.into_inner())
+        let mut buf = Vec::new();
+        r.read_to_end(&mut buf).await?;
+        Ok(buf)
     }
 
     #[tokio::test]
     async fn only_seek_zip_fs() -> Result<()> {
         let zip = test_data_dir().join("only-seek-zip.zip");
         let (a, d) = simple_fs_adapt_info(&zip).await?;
-        let _v = adapted_to_vec(loop_adapt(&ZipAdapter::new(), d, a).await?).await?;
-        // assert_eq!(String::from_utf8(v)?, "");
+        let engine = crate::preproc::make_engine(&a.config)?;
+        let v = adapted_to_vec(loop_adapt(engine, &ZipAdapter::new(), d, a).await?).await?;
+
+        let expected = vec![
+            "PREFIX:META-INF/MANIFEST.MF: Manifest-Version: 1.0",
+            "PREFIX:META-INF/MANIFEST.MF: Created-By: 1.3.0_02 (Sun Microsystems Inc.)",
+            "PREFIX:META-INF/MANIFEST.MF: ",
+            "PREFIX:META-INF/MANIFEST.MF: ",
+            "PREFIX:layout/TableLayout$Entry.class: [rga: binary data]",
+            "PREFIX:layout/TableLayout.class: [rga: binary data]",
+            "PREFIX:layout/TableLayoutConstants.class: [rga: binary data]",
+            "PREFIX:layout/TableLayoutConstraints.class: [rga: binary data]",
+        ];
+        let binding = String::from_utf8(v)?;
+        let actual = binding.trim();
+
+        // Compare line contents
+        assert_eq!(expected, actual.lines().collect::<Vec<_>>());
 
         Ok(())
     }
-    /*#[tokio::test]
+
+    #[tokio::test]
     async fn only_seek_zip_mem() -> Result<()> {
+        use tokio::fs::File;
+
         let zip = test_data_dir().join("only-seek-zip.zip");
         let (a, d) = simple_adapt_info(&zip, Box::pin(File::open(&zip).await?));
-        let v = adapted_to_vec(loop_adapt(&ZipAdapter::new(), d, a)?).await?;
-        // assert_eq!(String::from_utf8(v)?, "");
+        let engine = crate::preproc::make_engine(&a.config)?;
+        let v = adapted_to_vec(loop_adapt(engine, &ZipAdapter::new(), d, a).await?).await?;
+
+        let expected = vec![
+            "PREFIX:META-INF/MANIFEST.MF: Manifest-Version: 1.0",
+            "PREFIX:META-INF/MANIFEST.MF: Created-By: 1.3.0_02 (Sun Microsystems Inc.)",
+            "PREFIX:META-INF/MANIFEST.MF: ",
+            "PREFIX:META-INF/MANIFEST.MF: ",
+            "PREFIX:layout/TableLayout$Entry.class: [rga: binary data]",
+            "PREFIX:layout/TableLayout.class: [rga: binary data]",
+            "PREFIX:layout/TableLayoutConstants.class: [rga: binary data]",
+            "PREFIX:layout/TableLayoutConstraints.class: [rga: binary data]",
+        ];
+        let binding = String::from_utf8(v)?;
+        let actual = binding.trim();
+
+        // Compare line contents
+        assert_eq!(expected, actual.lines().collect::<Vec<_>>());
 
         Ok(())
-    }*/
+    }
+
     #[tokio::test]
     async fn recurse() -> Result<()> {
         let zipfile = create_zip("outer.txt", "outer text file", true).await?;
@@ -222,12 +266,18 @@ mod test {
             &PathBuf::from("outer.zip"),
             Box::pin(std::io::Cursor::new(zipfile)),
         );
-        let buf = adapted_to_vec(loop_adapt(&adapter, d, a).await?).await?;
+        let engine = crate::preproc::make_engine(&a.config)?;
+        let buf = adapted_to_vec(loop_adapt(engine, &adapter, d, a).await?).await?;
 
-        assert_eq!(
-            String::from_utf8(buf)?,
-            "PREFIX:outer.txt: outer text file\nPREFIX:inner.zip: inner.txt: inner text file\n",
-        );
+        let expected = vec![
+            "PREFIX:outer.txt: outer text file",
+            "PREFIX:inner.zip: inner.txt: inner text file",
+        ];
+        let binding = String::from_utf8(buf)?;
+        let actual = binding.trim();
+
+        // Compare line contents
+        assert_eq!(expected, actual.lines().collect::<Vec<_>>());
 
         Ok(())
     }
