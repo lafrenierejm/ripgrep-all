@@ -2,8 +2,10 @@ use super::*;
 use crate::print_bytes;
 use anyhow::*;
 use async_stream::stream;
+use futures_lite::io::AsyncReadExt;
 use lazy_static::lazy_static;
 use log::*;
+use tokio::io::{AsyncWriteExt, duplex};
 
 // TODO: allow users to configure file extensions instead of hard coding the list
 // https://github.com/phiresky/ripgrep-all/pull/208#issuecomment-2173241243
@@ -46,51 +48,52 @@ impl FileAdapter for ZipAdapter {
         _detection_reason: &FileMatcher,
     ) -> Result<AdaptedFilesIterBox> {
         // let (s, r) = mpsc::channel(1);
-        let AdaptInfo {
-            inp,
-            filepath_hint,
-            archive_recursion_depth,
-            postprocess,
-            line_prefix,
-            config,
-            is_real_file,
-            ..
-        } = ai;
-        if is_real_file {
-            use async_zip::read::fs::ZipFileReader;
+        dbg!(&ai.filepath_hint, &ai.is_real_file);
+        if ai.is_real_file {
+            use async_zip::tokio::read::fs::ZipFileReader;
+            use tokio::io::{copy, duplex};
+            use tokio_util::compat::FuturesAsyncReadCompatExt;
+
+            let AdaptInfo {
+                filepath_hint,
+                archive_recursion_depth,
+                postprocess,
+                line_prefix,
+                config,
+                ..
+            } = ai;
 
             let zip = ZipFileReader::new(&filepath_hint).await?;
             let s = stream! {
                 for i in 0..zip.file().entries().len() {
-                    let file = zip.get_entry(i)?;
-                    let reader = zip.entry(i).await?;
-                    if file.filename().ends_with('/') {
-                        continue;
-                    }
+                    let entry_meta = zip.file().entries()[i].clone();
+                    let fname_str = String::from_utf8_lossy(entry_meta.filename().as_bytes()).into_owned();
+                    if fname_str.ends_with('/') { continue; }
                     debug!(
                         "{}{}|{}: {} ({} packed)",
                         line_prefix,
                         filepath_hint.display(),
-                        file.filename(),
-                        print_bytes(file.uncompressed_size() as f64),
-                        print_bytes(file.compressed_size() as f64)
+                        &fname_str,
+                        print_bytes(entry_meta.uncompressed_size() as f64),
+                        print_bytes(entry_meta.compressed_size() as f64)
                     );
-                    let new_line_prefix = format!("{}{}: ", line_prefix, file.filename());
-                    let fname = PathBuf::from(file.filename());
-                    tokio::pin!(reader);
-                    // SAFETY: this should be solvable without unsafe but idk how :(
-                    // the issue is that ZipEntryReader borrows from ZipFileReader, but we need to yield it here into the stream
-                    // but then it can't borrow from the ZipFile
-                    let reader2 = unsafe {
-                        std::mem::transmute::<
-                            Pin<&mut (dyn AsyncRead + Send)>,
-                            Pin<&'static mut (dyn AsyncRead + Send)>,
-                        >(reader)
-                    };
+                    let new_line_prefix = format!("{}{}: ", line_prefix, &fname_str);
+                    let fname = PathBuf::from(fname_str.clone());
+                    let (w, r) = duplex(64 * 1024);
+                    let path_for_task = filepath_hint.clone();
+                    tokio::spawn(async move {
+                        let zip2 = ZipFileReader::new(&path_for_task).await?;
+                        let reader_with_entry = zip2.reader_with_entry(i).await?;
+                        let fut_reader = reader_with_entry.boxed_reader();
+                        let mut src = FuturesAsyncReadCompatExt::compat(fut_reader);
+                        let mut dst = w;
+                        let _ = copy(&mut src, &mut dst).await;
+                        Ok(())
+                    });
                     yield Ok(AdaptInfo {
                         filepath_hint: fname,
                         is_real_file: false,
-                        inp: Box::pin(reader2),
+                        inp: Box::pin(r),
                         line_prefix: new_line_prefix,
                         archive_recursion_depth: archive_recursion_depth + 1,
                         postprocess,
@@ -98,99 +101,70 @@ impl FileAdapter for ZipAdapter {
                     });
                 }
             };
-
             Ok(Box::pin(s))
         } else {
-            use async_zip::read::stream::ZipFileReader;
-            let mut zip = ZipFileReader::new(inp);
-
-            let s = stream! {
-                    trace!("begin zip");
-                    while let Some(mut entry) = zip.next_entry().await? {
-                        trace!("zip next entry");
-                        let file = entry.entry();
-                        if file.filename().ends_with('/') {
-                            zip = entry.skip().await?;
-
-                            continue;
-                        }
-                        debug!(
-                            "{}{}|{}: {} ({} packed)",
-                            line_prefix,
-                            filepath_hint.display(),
-                            file.filename(),
-                            print_bytes(file.uncompressed_size() as f64),
-                            print_bytes(file.compressed_size() as f64)
-                        );
-                        let new_line_prefix = format!("{}{}: ", line_prefix, file.filename());
-                        let fname = PathBuf::from(file.filename());
-                        let reader = entry.reader();
-                        tokio::pin!(reader);
-                        // SAFETY: this should be solvable without unsafe but idk how :(
-                        // the issue is that ZipEntryReader borrows from ZipFileReader, but we need to yield it here into the stream
-                        // but then it can't borrow from the ZipFile
-                        let reader2 = unsafe {
-                            std::mem::transmute::<
-                                Pin<&mut (dyn AsyncRead + Send)>,
-                                Pin<&'static mut (dyn AsyncRead + Send)>,
-                            >(reader)
-                        };
-                        yield Ok(AdaptInfo {
-                            filepath_hint: fname,
-                            is_real_file: false,
-                            inp: Box::pin(reader2),
-                            line_prefix: new_line_prefix,
-                            archive_recursion_depth: archive_recursion_depth + 1,
-                            postprocess,
-                            config: config.clone(),
-                        });
-                        zip = entry.done().await.context("going to next file in zip but entry was not read fully")?;
-
-                }
-                trace!("zip over");
-            };
-
-            Ok(Box::pin(s))
+            return owned_zip_iter_fs(ai).await;
         }
     }
 }
 
-/*struct ZipAdaptIter {
-    inp: AdaptInfo,
+pub async fn owned_zip_iter_fs(ai: AdaptInfo) -> Result<AdaptedFilesIterBox> {
+    use async_zip::tokio::read::fs::ZipFileReader;
+    let AdaptInfo {
+        filepath_hint,
+        inp,
+        line_prefix,
+        archive_recursion_depth,
+        postprocess,
+        config,
+        is_real_file,
+    } = ai;
+
+    let (zip_path, temp_file) = if is_real_file {
+        (filepath_hint.clone(), None)
+    } else {
+        let tmp = tempfile::NamedTempFile::new()?;
+        let tmp_path = tmp.path().to_path_buf();
+        let mut f = tokio::fs::File::create(&tmp_path).await?;
+        let mut r = inp;
+        tokio::io::copy(&mut r, &mut f).await?;
+        drop(f);
+        (tmp_path, Some(tmp)) // keep temp file alive
+    };
+
+    let reader = ZipFileReader::new(&zip_path).await?;
+    let metas: Vec<_> = reader.file().entries().to_vec();
+    let s = stream! {
+        let _temp_file_keeper = temp_file; // keep temp_file for duration of stream
+        for (i, meta) in metas.into_iter().enumerate() {
+            let name_str = String::from_utf8_lossy(meta.filename().as_bytes()).into_owned();
+            dbg!(&name_str);
+            if name_str.ends_with('/') { continue; }
+            let new_line_prefix = format!("{}{}: ", line_prefix, &name_str);
+            let fname = PathBuf::from(name_str.clone());
+            let reader2 = ZipFileReader::new(&zip_path).await?;
+            let entry_reader = reader2.reader_with_entry(i).await?;
+            let mut fut_reader = entry_reader.boxed_reader();
+            let mut buf = Vec::new();
+            fut_reader.read_to_end(&mut buf).await?;
+            let (mut w, r) = duplex(64 * 1024);
+            let data = buf;
+            tokio::spawn(async move {
+                let _ = w.write_all(&data).await;
+            });
+            yield Ok(AdaptInfo {
+                filepath_hint: fname,
+                is_real_file: false,
+                inp: Box::pin(r),
+                line_prefix: new_line_prefix,
+                archive_recursion_depth: archive_recursion_depth + 1,
+                postprocess,
+                config: config.clone(),
+            });
+        }
+    };
+    Ok(Box::pin(s))
 }
-impl<'a> AdaptedFilesIter for ZipAdaptIter<'a> {
-    fn next<'b>(&'b mut self) -> Option<AdaptInfo<'b>> {
-        let line_prefix = &self.inp.line_prefix;
-        let filepath_hint = &self.inp.filepath_hint;
-        let archive_recursion_depth = &self.inp.archive_recursion_depth;
-        let postprocess = self.inp.postprocess;
-        ::zip::read::read_zipfile_from_stream(&mut self.inp.inp)
-            .unwrap()
-            .and_then(|file| {
-                if file.is_dir() {
-                    return None;
-                }
-                debug!(
-                    "{}{}|{}: {} ({} packed)",
-                    line_prefix,
-                    filepath_hint.to_string_lossy(),
-                    file.name(),
-                    print_bytes(file.size() as f64),
-                    print_bytes(file.compressed_size() as f64)
-                );
-                let line_prefix = format!("{}{}: ", line_prefix, file.name());
-                Some(AdaptInfo {
-                    filepath_hint: PathBuf::from(file.name()),
-                    is_real_file: false,
-                    inp: Box::new(file),
-                    line_prefix,
-                    archive_recursion_depth: archive_recursion_depth + 1,
-                    postprocess,
-                    config: RgaConfig::default(), //config.clone(),
-                })
-            })
-    }
-}*/
 
 #[cfg(test)]
 mod test {
