@@ -1,0 +1,5 @@
+{
+    "key.with.dots": "value1",
+    "key[with]brackets": "value2",
+    "normal_key": "value3"
+}
