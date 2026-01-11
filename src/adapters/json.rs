@@ -4,9 +4,10 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use json_spanned_value::{Value, spanned};
 use lazy_static::lazy_static;
+use log::warn;
 use std::collections::HashMap;
 use std::pin::Pin;
-use tokio::io::{AsyncReadExt, AsyncWrite};
+use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 static EXTENSIONS: &[&str] = &["json"];
 
@@ -58,23 +59,33 @@ impl WritingFileAdapter for JsonAdapter {
             .context("Failed to read JSON content")?;
 
         // Parse JSON with span information
-        let parsed: spanned::Value =
-            json_spanned_value::from_str(&content).context("Failed to parse JSON")?;
+        match json_spanned_value::from_str(&content) {
+            Ok(parsed) => {
+                // Build line-to-output mapping
+                let mut line_map: HashMap<usize, String> = HashMap::new();
 
-        // Build line-to-output mapping
-        let mut line_map: HashMap<usize, String> = HashMap::new();
+                // Flatten JSON into line mappings
+                flatten_value(&parsed, String::new(), &content, &mut line_map)?;
 
-        // Flatten JSON into line mappings
-        flatten_value(&parsed, String::new(), &content, &mut line_map)?;
-
-        // Output line by line, matching the original line count
-        let line_count = content.lines().count();
-        for line_num in 0..line_count {
-            if let Some(output) = line_map.get(&line_num) {
-                async_writeln!(oup, "{}", output)?;
-            } else {
-                // Empty line to maintain line count
-                async_writeln!(oup)?;
+                // Output line by line, matching the original line count
+                let line_count = content.lines().count();
+                for line_num in 0..line_count {
+                    if let Some(output) = line_map.get(&line_num) {
+                        async_writeln!(oup, "{}", output)?;
+                    } else {
+                        // Empty line to maintain line count
+                        async_writeln!(oup)?;
+                    }
+                }
+            }
+            Err(e) => {
+                // Log warning and pass through original content
+                warn!(
+                    "Failed to parse JSON file '{}': {}. Passing through unmodified.",
+                    a.filepath_hint.display(),
+                    e
+                );
+                oup.write_all(content.as_bytes()).await?;
             }
         }
 
@@ -324,6 +335,32 @@ mod test {
 
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), json_content.lines().count());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_invalid_json_passthrough() -> anyhow::Result<()> {
+        let adapter: Box<dyn crate::adapters::FileAdapter> = Box::new(JsonAdapter::new());
+
+        let invalid_json = r#"This is not valid JSON
+{broken: "json",
+missing quotes and commas
+]
+}"#;
+
+        let (a, d) = simple_adapt_info(
+            std::path::Path::new("invalid.json"),
+            Box::pin(Cursor::new(invalid_json.as_bytes())),
+        );
+
+        // Should not panic or return an error
+        let res = adapter.adapt(a, &d).await?;
+        let buf = adapted_to_vec(res).await?;
+        let output = String::from_utf8(buf)?;
+
+        // Should pass through the original content unchanged
+        assert_str_eq!(output, invalid_json);
 
         Ok(())
     }
