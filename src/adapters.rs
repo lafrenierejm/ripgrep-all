@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub mod sqlite;
 pub mod tar;
 pub mod writing;
+pub mod yaml;
 pub mod zip;
 use crate::{adapted_iter::AdaptedFilesIterBox, config::RgaConfig, matching::*};
 use anyhow::{Context, Result, format_err};
@@ -128,6 +129,7 @@ pub fn get_all_adapters(custom_adapters: Option<Vec<CustomAdapterConfig>>) -> Ad
         Arc::new(tar::TarAdapter::new()),
         Arc::new(sqlite::SqliteAdapter::new()),
         Arc::new(json::JsonAdapter::new()),
+        Arc::new(yaml::YamlAdapter::new()),
     ];
     adapters.extend(
         BUILTIN_SPAWNING_ADAPTERS
