@@ -76,8 +76,11 @@
                   src = config.rust-project.crane-lib.path ./.;
                   filter = pkgs.lib.cleanSourceFilter;
                 };
-                crates.ripgrep_all.crane.args.buildInputs = dependencies;
-                crates.ripgrep_all.crane.args.nativeBuildInputs = dependencies;
+                crates.ripgrep_all.crane.args = {
+                  buildInputs = dependencies;
+                  meta.mainProgram = "rga";
+                  nativeBuildInputs = dependencies;
+                };
               };
             treefmt.config = {
               projectRootFile = ".git/config";
