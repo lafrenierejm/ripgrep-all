@@ -85,15 +85,15 @@ async fn connect_pragmas(db: &Connection) -> Result<()> {
 
         db.execute("create unique index if not exists preproc_cache_idx on preproc_cache (config_hash, adapter, adapter_version, file_path, active_adapters)", [])?;
 
-        Ok(())
+        Ok::<(), rusqlite::Error>(())
     })
     .await.context("connect_pragmas")?;
     let jm: i64 = db
-        .call(|db| Ok(db.pragma_query_value(None, "application_id", |r| r.get(0))?))
+        .call(|db| db.pragma_query_value(None, "application_id", |r| r.get(0)))
         .await?;
     if jm != 924716026 {
         // (probably) newly created db
-        db.call(|db| Ok(db.pragma_update(None, "application_id", "924716026")?))
+        db.call(|db| db.pragma_update(None, "application_id", "924716026"))
             .await?;
     }
     Ok(())
@@ -112,7 +112,7 @@ impl SqliteCache {
                 db.execute("drop table if exists preproc_cache", [])?;
                 db.pragma_update(None, "user_version", format!("{SCHEMA_VERSION}"))?;
             }
-            Ok(())
+            Ok::<(), rusqlite::Error>(())
         })
         .await?;
 
@@ -129,9 +129,8 @@ impl PreprocCache for SqliteCache {
         Ok(self
             .db
             .call(move |db| {
-                Ok(db
-                    .query_row(
-                        "select text_content_zstd from preproc_cache where
+                db.query_row(
+                    "select text_content_zstd from preproc_cache where
                             adapter = :adapter
                         and config_hash = :config_hash
                         and adapter_version = :adapter_version
@@ -139,17 +138,17 @@ impl PreprocCache for SqliteCache {
                         and file_path = :file_path
                         and file_mtime_unix_ms = :file_mtime_unix_ms
                 ",
-                        named_params! {
-                            ":config_hash": &key.config_hash,
-                            ":adapter": &key.adapter,
-                            ":adapter_version": &key.adapter_version,
-                            ":active_adapters": &key.active_adapters,
-                            ":file_path": &key.file_path,
-                            ":file_mtime_unix_ms": &key.file_mtime_unix_ms
-                        },
-                        |r| r.get::<_, Vec<u8>>(0),
-                    )
-                    .optional()?)
+                    named_params! {
+                        ":config_hash": &key.config_hash,
+                        ":adapter": &key.adapter,
+                        ":adapter_version": &key.adapter_version,
+                        ":active_adapters": &key.active_adapters,
+                        ":file_path": &key.file_path,
+                        ":file_mtime_unix_ms": &key.file_mtime_unix_ms
+                    },
+                    |r| r.get::<_, Vec<u8>>(0),
+                )
+                .optional()
             })
             .await
             .context("reading from cache")?)
@@ -182,7 +181,7 @@ impl PreprocCache for SqliteCache {
                         ":file_mtime_unix_ms": &key.file_mtime_unix_ms,
                         ":text_content_zstd": value
                     })?;
-                Ok(())
+                Ok::<(), rusqlite::Error>(())
             })
             .await?)
     }
