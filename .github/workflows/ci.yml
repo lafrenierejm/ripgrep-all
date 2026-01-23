@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+---
 # Based on https://github.com/actions-rs/meta/blob/master/recipes/quickstart.md
 #
 # While our "example" application has platform-specific code,
