@@ -1,9 +1,7 @@
-# Based on https://github.com/actions-rs/meta/blob/master/recipes/quickstart.md
-#
-# While our "example" application has platform-specific code,
-# for simplicity we are compiling and testing everything in a nix-on-Linux environment only.
-
-on: [push, pull_request]
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+---
+on:
+  pull_request:
 
 name: ci
 
