@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-25.11-darwin";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
@@ -54,13 +54,11 @@
           {
             pre-commit = {
               check.enable = true;
+              settings.excludes = [ "exampledir/.*" ];
               settings.hooks = {
                 ripsecrets.enable = true;
                 treefmt.enable = true;
-                typos = {
-                  enable = true;
-                  settings.exclude = "exampledir/*";
-                };
+                typos.enable = true;
               };
             };
             rust-project =
@@ -68,7 +66,7 @@
                 dependencies = with pkgs; [
                   ffmpeg
                   pandoc
-                  poppler_utils
+                  poppler-utils
                   ripgrep
                   zip
                 ];
