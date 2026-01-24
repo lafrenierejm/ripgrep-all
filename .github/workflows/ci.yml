@@ -15,6 +15,15 @@ jobs:
 
       - name: Install nix
         uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure cachix binary cache
+        uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
+        with:
+          name: ${{ github.repository_owner }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          signingKey: "${{ secrets.CACHIX_SIGNING_KEY }}"
 
       - name: Ensure the build succeeds
         run: nix build
