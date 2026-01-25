@@ -5,6 +5,11 @@ on:
 
 name: ci
 
+env:
+  CACHIX_CACHE: ${{ github.repository_owner }}
+  CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+  CACHIX_SIGNING_KEY: ${{ secrets.CACHIX_SIGNING_KEY }}
+
 jobs:
   nix-flake-check:
     name: nix flake check
@@ -18,15 +23,24 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure cachix binary cache
-        uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
-        with:
-          name: ${{ github.repository_owner }}
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          signingKey: "${{ secrets.CACHIX_SIGNING_KEY }}"
+      - name: Export current system
+        run:
+          echo "NIX_SYSTEM=$(nix eval --raw --impure --expr builtins.currentSystem)" >> "$GITHUB_ENV"
 
       - name: Ensure the build succeeds
-        run: nix build
+        run: >
+          nix run github:Mic92/nix-fast-build
+          --
+          --flake .#packages."$NIX_SYSTEM".default
+          --no-nom
+          --skip-cached
+          --cachix-cache "$CACHIX_CACHE"
 
-      - name: Run `nix flake check` to run formatters, linters, and tests
-        run: nix flake check --print-build-logs
+      - name: Eval checks to run formatters, linters, and tests
+        run: >
+          nix run github:Mic92/nix-fast-build
+          --
+          --flake .#checks."$NIX_SYSTEM"
+          --no-nom
+          --skip-cached
+          --cachix-cache "$CACHIX_CACHE"
