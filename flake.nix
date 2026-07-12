@@ -38,9 +38,9 @@
       }:
       {
         imports = [
+          ./nix/nixpkgs.nix
           inputs.git-hooks-nix.flakeModule
           inputs.rust-flake.flakeModules.default
-          inputs.rust-flake.flakeModules.nixpkgs
           inputs.treefmt-nix.flakeModule
         ];
         systems = import nix-systems;
