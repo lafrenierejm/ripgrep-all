@@ -73,3 +73,5 @@ tokio-test = "0.4.5"
 debug = true
 lto = "thin"
 split-debuginfo = "packed"
+codegen-units = 1
+opt-level = "z"
