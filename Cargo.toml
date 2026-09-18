@@ -63,6 +63,7 @@ tree_magic = {package = "tree_magic_mini", version = "3.2.2"}
 json-spanned-value = "0.2.2"
 granit-parser = "2.2.0"
 hcl-edit = "0.10.0"
+toml_edit = "0.25.20"
 
 [dev-dependencies]
 async-recursion = "1.1.1"
