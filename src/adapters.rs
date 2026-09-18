@@ -1,6 +1,7 @@
 pub mod custom;
 pub mod decompress;
 pub mod ffmpeg;
+pub mod hcl;
 pub mod json;
 pub mod mbox;
 pub mod postproc;
@@ -130,6 +131,7 @@ pub fn get_all_adapters(custom_adapters: Option<Vec<CustomAdapterConfig>>) -> Ad
         Arc::new(sqlite::SqliteAdapter::new()),
         Arc::new(json::JsonAdapter::new()),
         Arc::new(yaml::YamlAdapter::new()),
+        Arc::new(hcl::HclAdapter::new()),
     ];
     adapters.extend(
         BUILTIN_SPAWNING_ADAPTERS

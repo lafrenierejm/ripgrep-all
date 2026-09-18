@@ -62,6 +62,7 @@ tokio-util = {version = "0.7.19", features = ["io", "full"]}
 tree_magic = {package = "tree_magic_mini", version = "3.2.2"}
 json-spanned-value = "0.2.2"
 granit-parser = "2.2.0"
+hcl-edit = "0.10.0"
 
 [dev-dependencies]
 async-recursion = "1.1.1"
