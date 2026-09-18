@@ -61,7 +61,7 @@ astral-tokio-tar = "0.7.0"
 tokio-util = {version = "0.7.19", features = ["io", "full"]}
 tree_magic = {package = "tree_magic_mini", version = "3.2.2"}
 json-spanned-value = "0.2.2"
-saphyr = "0.0.6"
+saphyr = "0.0.12"
 
 [dev-dependencies]
 async-recursion = "1.1.1"
