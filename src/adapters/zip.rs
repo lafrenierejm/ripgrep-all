@@ -471,7 +471,16 @@ mod test {
             let (mut ai, reason) =
                 simple_adapt_info(&path, Box::pin(std::io::Cursor::new(bytes.clone())));
             ai.is_real_file = is_real_file;
-            let output = adapted_to_vec(loop_adapt(&ZipAdapter::new(), reason, ai).await?).await?;
+            let output = adapted_to_vec(
+                loop_adapt(
+                    crate::preproc::make_engine(&ai.config)?,
+                    &ZipAdapter::new(),
+                    reason,
+                    ai,
+                )
+                .await?,
+            )
+            .await?;
             assert_eq!(
                 String::from_utf8(output)?,
                 "PREFIX:dir/first.txt: first\nPREFIX:second.txt: second\n"
@@ -492,7 +501,16 @@ mod test {
         let path = dir.path().join("corrupt.zip");
         tokio::fs::write(&path, bytes).await?;
         let (ai, reason) = simple_fs_adapt_info(&path).await?;
-        let result = adapted_to_vec(loop_adapt(&ZipAdapter::new(), reason, ai).await?).await;
+        let result = adapted_to_vec(
+            loop_adapt(
+                crate::preproc::make_engine(&ai.config)?,
+                &ZipAdapter::new(),
+                reason,
+                ai,
+            )
+            .await?,
+        )
+        .await;
         assert!(
             result.is_err(),
             "corrupted ZIP content must fail validation"
@@ -504,7 +522,16 @@ mod test {
     async fn only_seek_zip_fs() -> Result<()> {
         let zip = test_data_dir().join("only-seek-zip.zip");
         let (a, d) = simple_fs_adapt_info(&zip).await?;
-        let _v = adapted_to_vec(loop_adapt(&ZipAdapter::new(), d, a).await?).await?;
+        let _v = adapted_to_vec(
+            loop_adapt(
+                crate::preproc::make_engine(&a.config)?,
+                &ZipAdapter::new(),
+                d,
+                a,
+            )
+            .await?,
+        )
+        .await?;
         // assert_eq!(String::from_utf8(v)?, "");
 
         Ok(())
@@ -513,7 +540,7 @@ mod test {
     async fn only_seek_zip_mem() -> Result<()> {
         let zip = test_data_dir().join("only-seek-zip.zip");
         let (a, d) = simple_adapt_info(&zip, Box::pin(File::open(&zip).await?));
-        let v = adapted_to_vec(loop_adapt(&ZipAdapter::new(), d, a)?).await?;
+        let v = adapted_to_vec(loop_adapt(crate::preproc::make_engine(&a.config)?, &ZipAdapter::new(), d, a)?).await?;
         // assert_eq!(String::from_utf8(v)?, "");
 
         Ok(())
@@ -527,7 +554,10 @@ mod test {
             &PathBuf::from("outer.zip"),
             Box::pin(std::io::Cursor::new(zipfile)),
         );
-        let buf = adapted_to_vec(loop_adapt(&adapter, d, a).await?).await?;
+        let buf = adapted_to_vec(
+            loop_adapt(crate::preproc::make_engine(&a.config)?, &adapter, d, a).await?,
+        )
+        .await?;
 
         assert_eq!(
             String::from_utf8(buf)?,
