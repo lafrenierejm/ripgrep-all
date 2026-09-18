@@ -73,15 +73,14 @@ impl WritingFileAdapter for YamlAdapter {
 
                 // Build line-to-output mapping
                 let mut line_map: HashMap<usize, String> = HashMap::new();
+                let source_lines: Vec<&str> = content.lines().collect();
 
-                // Process the first document (most YAML files have a single document)
                 for doc in &docs {
-                    flatten_yaml_value(doc, String::new(), &mut line_map)?;
+                    flatten_yaml_value(doc, String::new(), &source_lines, &mut line_map)?;
                 }
 
                 // Output line by line, matching the original line count
-                let line_count = content.lines().count();
-                for line_num in 0..line_count {
+                for line_num in 0..source_lines.len() {
                     if let Some(output) = line_map.get(&line_num) {
                         async_writeln!(oup, "{}", output)?;
                     } else {
@@ -126,6 +125,12 @@ struct Node {
     data: YamlData,
     start_line: usize,
     end_line: usize,
+    /// 0-indexed column of the span's start.
+    start_col: usize,
+    /// 0-indexed column of the span's (exclusive) end.
+    end_col: usize,
+    /// Source style, for scalars only.
+    style: Option<ScalarStyle>,
 }
 
 fn resolve_scalar(value: String, style: ScalarStyle, tagged: bool) -> Scalar {
@@ -195,11 +200,15 @@ fn build_node<'a>(
     span: Span,
 ) -> std::result::Result<Node, ScanError> {
     let start_line = span.start.line();
+    let start_col = span.start.col();
     match ev {
         Event::Scalar(value, style, _, tag) => Ok(Node {
             data: YamlData::Value(resolve_scalar(value.into_owned(), style, tag.is_some())),
             start_line,
             end_line: span.end.line(),
+            start_col,
+            end_col: span.end.col(),
+            style: Some(style),
         }),
         Event::SequenceStart(..) => {
             let mut items = Vec::new();
@@ -210,6 +219,9 @@ fn build_node<'a>(
                         data: YamlData::Sequence(items),
                         start_line,
                         end_line: span.end.line(),
+                        start_col,
+                        end_col: span.end.col(),
+                        style: None,
                     });
                 }
                 items.push(build_node(parser, ev, span)?);
@@ -224,6 +236,9 @@ fn build_node<'a>(
                         data: YamlData::Mapping(entries),
                         start_line,
                         end_line: span.end.line(),
+                        start_col,
+                        end_col: span.end.col(),
+                        style: None,
                     });
                 }
                 let key = build_node(parser, ev, span)?;
@@ -237,6 +252,9 @@ fn build_node<'a>(
             data: YamlData::Alias,
             start_line,
             end_line: span.end.line(),
+            start_col,
+            end_col: span.end.col(),
+            style: None,
         }),
     }
 }
@@ -255,14 +273,16 @@ fn next_event<'a>(
 fn flatten_yaml_value(
     value: &Node,
     path: String,
+    source_lines: &[&str],
     line_map: &mut HashMap<usize, String>,
 ) -> Result<()> {
-    flatten_yaml_value_with_key_line(value, path, line_map, value.start_line)
+    flatten_yaml_value_with_key_line(value, path, source_lines, line_map, value.start_line)
 }
 
 fn flatten_yaml_value_with_key_line(
     value: &Node,
     path: String,
+    source_lines: &[&str],
     line_map: &mut HashMap<usize, String>,
     key_line: usize,
 ) -> Result<()> {
@@ -288,6 +308,7 @@ fn flatten_yaml_value_with_key_line(
                     flatten_yaml_value_with_key_line(
                         elem,
                         indexed_path,
+                        source_lines,
                         line_map,
                         elem.start_line,
                     )?;
@@ -308,14 +329,30 @@ fn flatten_yaml_value_with_key_line(
                         format!("{}.{}", path, key_str)
                     };
                     // Use the key's line number for output placement
-                    flatten_yaml_value_with_key_line(val, new_path, line_map, key.start_line)?;
+                    flatten_yaml_value_with_key_line(
+                        val,
+                        new_path,
+                        source_lines,
+                        line_map,
+                        key.start_line,
+                    )?;
                 }
             }
         }
         YamlData::Value(scalar) => {
-            let value_str = format_scalar_value(scalar);
-            let output = format!("{}: {}", path, value_str);
-            line_map.insert(line_num, output);
+            // Strings covering several source lines (block scalars, multi-line
+            // plain or quoted scalars) are emitted line by line instead.
+            let is_block = matches!(
+                value.style,
+                Some(ScalarStyle::Literal | ScalarStyle::Folded)
+            );
+            let is_multiline = matches!(scalar, Scalar::String(_))
+                && (is_block || value.start_line != value.end_line);
+            if !(is_multiline && flatten_multiline_string(value, &path, source_lines, line_map)) {
+                let value_str = format_scalar_value(scalar);
+                let output = format!("{}: {}", path, value_str);
+                line_map.insert(line_num, output);
+            }
         }
         YamlData::Alias => {
             // YAML aliases are references to anchors
@@ -343,21 +380,104 @@ fn scalar_to_string(data: &YamlData) -> String {
 
 fn format_scalar_value(scalar: &Scalar) -> String {
     match scalar {
-        Scalar::String(s) => {
-            // Escape special characters in strings
-            let escaped = s
-                .replace('\\', "\\\\")
-                .replace('\n', "\\n")
-                .replace('\r', "\\r")
-                .replace('\t', "\\t")
-                .replace('"', "\\\"");
-            format!("\"{}\"", escaped)
-        }
+        Scalar::String(s) => quote_escape(s),
         Scalar::Integer(i) => i.to_string(),
         Scalar::FloatingPoint(f) => f.to_string(),
         Scalar::Boolean(b) => b.to_string(),
         Scalar::Null => "null".to_string(),
     }
+}
+
+fn quote_escape(s: &str) -> String {
+    // Escape special characters in strings
+    let escaped = s
+        .replace('\\', "\\\\")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+        .replace('"', "\\\"");
+    format!("\"{}\"", escaped)
+}
+
+/// Emits a string scalar that covers several source lines as a newline-delimited
+/// array: each source line of the scalar becomes an indexed element placed on the
+/// same line it came from. Uses the source text rather than the decoded value so
+/// that folded (`>`) and multi-line flow scalars keep their original line layout.
+///
+/// Returns `false` if no lines could be attributed to the scalar, in which case
+/// the caller falls back to single-line output.
+fn flatten_multiline_string(
+    value: &Node,
+    path: &str,
+    source_lines: &[&str],
+    line_map: &mut HashMap<usize, String>,
+) -> bool {
+    let is_block = matches!(
+        value.style,
+        Some(ScalarStyle::Literal | ScalarStyle::Folded)
+    );
+    let leading_spaces = |line: &str| line.chars().take_while(|c| *c == ' ').count();
+
+    // Convert 1-indexed span lines to 0-indexed. For every style the span starts at the
+    // scalar's first character; for block scalars that is the first content line (not
+    // the `|`/`>` header), and for flow scalars it is the opening quote.
+    let first_line = value.start_line.saturating_sub(1);
+    let mut last_line = value.end_line.saturating_sub(1);
+
+    match source_lines.get(last_line) {
+        Some(line) => {
+            // For block scalars the end marker sits at the start of the token
+            // that follows the scalar, not after the scalar's last character.
+            // In that case the marker's line is not part of the scalar.
+            let indent = line.chars().take_while(|c| c.is_whitespace()).count();
+            if value.end_col <= indent {
+                last_line = last_line.saturating_sub(1);
+            }
+        }
+        // The marker is past the final line (input ended with a line break).
+        None => last_line = source_lines.len().saturating_sub(1),
+    }
+
+    // Trailing blank lines carry no searchable text; drop them.
+    while last_line > first_line && source_lines[last_line].trim().is_empty() {
+        last_line -= 1;
+    }
+
+    if last_line < first_line || first_line >= source_lines.len() {
+        return false;
+    }
+
+    // Block scalars are indented uniformly; take the indentation from the first
+    // non-blank content line.
+    let Some(block_indent) = source_lines[first_line..=last_line]
+        .iter()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| leading_spaces(l))
+    else {
+        // No text at all (e.g. an empty block scalar).
+        return false;
+    };
+
+    for (idx, line_idx) in (first_line..=last_line).enumerate() {
+        let line = source_lines[line_idx];
+        let text: String = if is_block {
+            // Strip the block's indentation while keeping any deeper indentation,
+            // which is significant in `|` blocks.
+            line.chars()
+                .skip(leading_spaces(line).min(block_indent))
+                .collect()
+        } else if line_idx == first_line {
+            // The first line may begin mid-line (e.g. `key: first part`).
+            line.chars().skip(value.start_col).collect()
+        } else {
+            let strip = leading_spaces(line).min(value.start_col);
+            line.chars().skip(strip).collect()
+        };
+        let output = format!("{}[{}]: {}", path, idx, quote_escape(&text));
+        line_map.insert(line_idx, output);
+    }
+
+    true
 }
 
 fn format_flow_array(path: &str, seq: &[Node]) -> Result<String> {
@@ -747,10 +867,8 @@ name: test
         }
 
         let mut expected = HashMap::new();
-        expected.insert(
-            0,
-            "description: \"This is a multiline\\nstring in YAML\\n\"",
-        );
+        expected.insert(1, "description[0]: \"This is a multiline\"");
+        expected.insert(2, "description[1]: \"string in YAML\"");
         expected.insert(3, "name: \"test\"");
 
         assert_eq!(lines.len(), yaml_content.lines().count());
@@ -763,5 +881,190 @@ name: test
         }
 
         Ok(())
+    }
+
+    /// Runs the adapter over `yaml_content` and asserts that each output line
+    /// matches `expected` (0-indexed line number to text), that every other
+    /// line is empty, and that the line count is preserved.
+    async fn assert_adapted_lines(
+        yaml_content: &str,
+        expected: &[(usize, &str)],
+    ) -> anyhow::Result<()> {
+        let adapter: Box<dyn crate::adapters::FileAdapter> = Box::new(YamlAdapter::new());
+
+        let (a, d) = simple_adapt_info(
+            std::path::Path::new("test.yaml"),
+            Box::pin(Cursor::new(yaml_content.as_bytes().to_vec())),
+        );
+
+        let res = adapter.adapt(a, &d).await?;
+        let buf = adapted_to_vec(res).await?;
+        let output = String::from_utf8(buf)?;
+
+        let lines: Vec<&str> = output.lines().collect();
+        let expected: HashMap<usize, &str> = expected.iter().copied().collect();
+
+        assert_eq!(lines.len(), yaml_content.lines().count());
+        for (line_num, line) in lines.iter().enumerate() {
+            assert_str_eq!(*line, expected.get(&line_num).copied().unwrap_or(""));
+        }
+
+        Ok(())
+    }
+
+    /// Literal block scalar (`|`): each line is its own element and interior
+    /// blank lines are kept so indexes stay aligned with source lines.
+    #[tokio::test]
+    async fn test_multiline_literal_block() -> anyhow::Result<()> {
+        let yaml_content = r#"lit: |
+  line one
+
+  line three
+after: done
+"#;
+        assert_adapted_lines(
+            yaml_content,
+            &[
+                (1, "lit[0]: \"line one\""),
+                (2, "lit[1]: \"\""),
+                (3, "lit[2]: \"line three\""),
+                (4, "after: \"done\""),
+            ],
+        )
+        .await
+    }
+
+    /// Literal block scalar with the keep indicator (`|+`): trailing blank
+    /// lines belong to the value but carry no text, so they are dropped.
+    #[tokio::test]
+    async fn test_multiline_literal_block_keep() -> anyhow::Result<()> {
+        let yaml_content = r#"keep: |+
+  kept
+
+after: done
+"#;
+        assert_adapted_lines(
+            yaml_content,
+            &[(1, "keep[0]: \"kept\""), (3, "after: \"done\"")],
+        )
+        .await
+    }
+
+    /// Literal block scalar with the strip indicator (`|-`).
+    #[tokio::test]
+    async fn test_multiline_literal_block_strip() -> anyhow::Result<()> {
+        let yaml_content = r#"strip: |-
+  stripped
+after: done
+"#;
+        assert_adapted_lines(
+            yaml_content,
+            &[(1, "strip[0]: \"stripped\""), (2, "after: \"done\"")],
+        )
+        .await
+    }
+
+    /// Folded block scalar (`>`): the source lines are emitted as written,
+    /// not the folded value, so each line keeps its original position.
+    #[tokio::test]
+    async fn test_multiline_folded_block() -> anyhow::Result<()> {
+        let yaml_content = r#"fold: >
+  folded one
+  folded two
+
+  para two
+after: done
+"#;
+        assert_adapted_lines(
+            yaml_content,
+            &[
+                (1, "fold[0]: \"folded one\""),
+                (2, "fold[1]: \"folded two\""),
+                (3, "fold[2]: \"\""),
+                (4, "fold[3]: \"para two\""),
+                (5, "after: \"done\""),
+            ],
+        )
+        .await
+    }
+
+    /// Multi-line plain scalar: the first element starts mid-line after the
+    /// key, and continuation indentation is stripped.
+    #[tokio::test]
+    async fn test_multiline_plain_scalar() -> anyhow::Result<()> {
+        let yaml_content = r#"plain: first part
+  second part
+after: done
+"#;
+        assert_adapted_lines(
+            yaml_content,
+            &[
+                (0, "plain[0]: \"first part\""),
+                (1, "plain[1]: \"second part\""),
+                (2, "after: \"done\""),
+            ],
+        )
+        .await
+    }
+
+    /// Multi-line double-quoted scalar: the source text is used verbatim, so
+    /// the surrounding quote characters appear in the elements.
+    #[tokio::test]
+    async fn test_multiline_double_quoted_scalar() -> anyhow::Result<()> {
+        let yaml_content = r#"dq: "double
+  quoted"
+after: done
+"#;
+        assert_adapted_lines(
+            yaml_content,
+            &[
+                (0, "dq[0]: \"\\\"double\""),
+                (1, "dq[1]: \"quoted\\\"\""),
+                (2, "after: \"done\""),
+            ],
+        )
+        .await
+    }
+
+    /// Block scalar nested inside a mapping: the block's own indentation is
+    /// stripped and the following sibling key is not swallowed.
+    #[tokio::test]
+    async fn test_multiline_block_in_nested_mapping() -> anyhow::Result<()> {
+        let yaml_content = r#"nested:
+  inner: |
+    deep one
+    deep two
+  next: 1
+"#;
+        assert_adapted_lines(
+            yaml_content,
+            &[
+                (2, "nested.inner[0]: \"deep one\""),
+                (3, "nested.inner[1]: \"deep two\""),
+                (4, "nested.next: 1"),
+            ],
+        )
+        .await
+    }
+
+    /// Block scalar as a sequence element: the line index nests under the
+    /// element index.
+    #[tokio::test]
+    async fn test_multiline_block_in_sequence() -> anyhow::Result<()> {
+        let yaml_content = r#"seq:
+  - |
+    in seq one
+    in seq two
+  - x
+"#;
+        assert_adapted_lines(
+            yaml_content,
+            &[
+                (2, "seq[0][0]: \"in seq one\""),
+                (3, "seq[0][1]: \"in seq two\""),
+                (4, "seq[1]: \"x\""),
+            ],
+        )
+        .await
     }
 }
