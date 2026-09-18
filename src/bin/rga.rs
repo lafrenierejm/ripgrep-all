@@ -109,21 +109,12 @@ fn main() -> anyhow::Result<()> {
     let adapters = get_adapters_filtered(config.custom_adapters.clone(), &config.adapters)?;
 
     let pre_glob = if !config.accurate {
-        // One glob alternative per matcher: `*.ext` (plus its upper-case
-        // twin) for extensions, and the bare name for file name matchers,
-        // which ripgrep matches against the last path component.
+        // One glob alternative per matcher, matched against the last path
+        // component by ripgrep.
         let patterns = adapters
             .iter()
             .flat_map(|a| &a.metadata().fast_matchers)
-            .flat_map(|m| match m {
-                FastFileMatcher::FileExtension(ext) => {
-                    vec![
-                        format!("*.{ext}"),
-                        format!("*.{}", ext.to_ascii_uppercase()),
-                    ]
-                }
-                FastFileMatcher::FileName(name) => vec![name.clone()],
-            })
+            .map(pre_glob_pattern)
             .collect::<Vec<_>>()
             .join(",");
         format!("{{{patterns}}}")
@@ -165,6 +156,36 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Builds the `--pre-glob` alternative for one matcher: `*.ext` for an
+/// extension, or the bare name for a file name.
+///
+/// ripgrep's `--pre-glob` is case-sensitive and ignores
+/// `--glob-case-insensitive`, while the adapter matcher compares names
+/// case-insensitively. To keep the two in agreement, every ASCII letter is
+/// written as a two-character class (`[pP]`), so `report.PDF` and
+/// `Report.Pdf` both reach the preprocessor. Glob metacharacters that could
+/// appear in a custom adapter's extension are neutralized the same way.
+fn pre_glob_pattern(matcher: &FastFileMatcher) -> String {
+    fn case_insensitive(text: &str) -> String {
+        text.chars()
+            .map(|c| {
+                if c.is_ascii_alphabetic() {
+                    format!("[{}{}]", c.to_ascii_lowercase(), c.to_ascii_uppercase())
+                } else if matches!(c, '*' | '?' | '[' | '{' | '}' | ',' | '\\') {
+                    format!("[{c}]")
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect()
+    }
+
+    match matcher {
+        FastFileMatcher::FileExtension(ext) => format!("*.{}", case_insensitive(ext)),
+        FastFileMatcher::FileName(name) => case_insensitive(name),
+    }
+}
+
 /// add the directory that contains `rga` to PATH, so rga-preproc can find pandoc etc (if we are on Windows where we include dependent binaries)
 fn add_exe_to_path() -> Result<()> {
     use std::env;
@@ -182,4 +203,41 @@ fn add_exe_to_path() -> Result<()> {
     // TODO: Audit that the environment access only happens in single-threaded code.
     unsafe { env::set_var("PATH", new_path) };
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn extension_pattern_is_case_insensitive() {
+        let m = FastFileMatcher::FileExtension("pdf".to_owned());
+        assert_eq!(pre_glob_pattern(&m), "*.[pP][dD][fF]");
+    }
+
+    #[test]
+    fn multi_part_extension_keeps_its_dot() {
+        let m = FastFileMatcher::FileExtension("tar.gz".to_owned());
+        assert_eq!(pre_glob_pattern(&m), "*.[tT][aA][rR].[gG][zZ]");
+    }
+
+    #[test]
+    fn file_name_pattern_is_case_insensitive() {
+        let m = FastFileMatcher::FileName("Cargo.lock".to_owned());
+        assert_eq!(
+            pre_glob_pattern(&m),
+            "[cC][aA][rR][gG][oO].[lL][oO][cC][kK]"
+        );
+        let m = FastFileMatcher::FileName(".gitconfig".to_owned());
+        assert_eq!(
+            pre_glob_pattern(&m),
+            ".[gG][iI][tT][cC][oO][nN][fF][iI][gG]"
+        );
+    }
+
+    #[test]
+    fn glob_metacharacters_are_neutralized() {
+        let m = FastFileMatcher::FileExtension("a,b".to_owned());
+        assert_eq!(pre_glob_pattern(&m), "*.[aA][,][bB]");
+    }
 }
