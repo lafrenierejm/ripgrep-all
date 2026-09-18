@@ -133,9 +133,8 @@ pub fn postproc_prefix<T: AsyncRead + Send>(
     line_prefix: &str,
     inp: T,
 ) -> impl AsyncRead + Send + use<T> {
-    let line_prefix_n = format!("\n{line_prefix}"); // clone since we need it later
+    let line_prefix_n = format!("\n{line_prefix}");
     let line_prefix_o = Bytes::copy_from_slice(line_prefix.as_bytes());
-    let regex = regex::bytes::Regex::new("\n").unwrap();
     let inp_stream = ReaderStream::new(inp);
     let oup_stream = stream! {
         yield Ok(line_prefix_o);
@@ -144,7 +143,15 @@ pub fn postproc_prefix<T: AsyncRead + Send>(
                 Err(e) => yield Err(e),
                 Ok(chunk) => {
                     if chunk.contains(&b'\n') {
-                        yield Ok(Bytes::copy_from_slice(&regex.replace_all(&chunk, line_prefix_n.as_bytes())));
+                        let mut out = Vec::with_capacity(chunk.len() + 16);
+                        let mut last = 0usize;
+                        for pos in memchr::memchr_iter(b'\n', &chunk) {
+                            out.extend_from_slice(&chunk[last..pos]);
+                            out.extend_from_slice(line_prefix_n.as_bytes());
+                            last = pos + 1;
+                        }
+                        out.extend_from_slice(&chunk[last..]);
+                        yield Ok(Bytes::from(out));
                     } else {
                         yield Ok(chunk);
                     }
@@ -182,7 +189,9 @@ impl FileAdapter for PostprocPageBreaks {
         a: super::AdaptInfo,
         _detection_reason: &crate::matching::FileMatcher,
     ) -> Result<AdaptedFilesIterBox> {
-        let read = postproc_pagebreaks(postproc_encoding(&a.line_prefix, a.inp).await?);
+        let read: Pin<Box<dyn AsyncRead + Send>> = Box::pin(postproc_pagebreaks(
+            postproc_encoding(&a.line_prefix, a.inp).await?,
+        ));
         // keep adapt info (filename etc) except replace inp
         let ai = AdaptInfo {
             inp: Box::pin(read),
