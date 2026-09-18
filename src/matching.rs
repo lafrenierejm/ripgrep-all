@@ -20,6 +20,10 @@ pub enum FastFileMatcher {
      *
      */
     FileExtension(String),
+    /// The complete file name, e.g. ".gitconfig" or "Cargo.lock". Matched
+    /// case-insensitively against the last path component, so files with no
+    /// useful extension (dotfiles, lock files) can still be routed to an adapter.
+    FileName(String),
     // todo: maybe add others, e.g. regex on whole filename or even paths
     // todo: maybe allow matching a directory (e.g. /var/lib/postgres)
 }
@@ -63,6 +67,8 @@ pub fn adapter_matcher(
         std::collections::HashMap::new();
     let mut mime_map: std::collections::HashMap<String, Vec<(Arc<dyn FileAdapter>, FileMatcher)>> =
         std::collections::HashMap::new();
+    let mut name_map: std::collections::HashMap<String, Vec<(Arc<dyn FileAdapter>, FileMatcher)>> =
+        std::collections::HashMap::new();
     for adapter in adapters.iter() {
         let metadata = adapter.metadata();
         for matcher in metadata.get_matchers(slow) {
@@ -81,15 +87,32 @@ pub fn adapter_matcher(
                         FileMatcher::Fast(FastFileMatcher::FileExtension(ext.clone())),
                     ));
                 }
+                FileMatcher::Fast(FastFileMatcher::FileName(name)) => {
+                    let k = name.to_ascii_lowercase();
+                    name_map.entry(k).or_default().push((
+                        adapter.clone(),
+                        FileMatcher::Fast(FastFileMatcher::FileName(name.clone())),
+                    ));
+                }
             }
         }
     }
     let func = move |meta: FileMeta| {
-        let ext = std::path::Path::new(&meta.lossy_filename)
+        let path = std::path::Path::new(&meta.lossy_filename);
+        let name = path
+            .file_name()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase());
+        let ext = path
             .extension()
             .and_then(|e| e.to_str())
             .map(|e| e.to_ascii_lowercase());
         let mut candidates: Vec<(Arc<dyn FileAdapter>, FileMatcher)> = vec![];
+        if let Some(name) = name
+            && let Some(v) = name_map.get(&name)
+        {
+            candidates.extend(v.iter().cloned());
+        }
         if let Some(ext) = ext
             && let Some(v) = ext_map.get(&ext)
         {
@@ -122,4 +145,42 @@ pub fn adapter_matcher(
         Some(candidates.remove(0))
     };
     Ok(Box::new(func))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// Name of the adapter the built-in set selects for `filename`, if any.
+    fn adapter_for(filename: &str) -> Option<String> {
+        let (adapters, _) = get_all_adapters(None);
+        let matcher = adapter_matcher(&adapters, false).unwrap();
+        matcher(FileMeta {
+            lossy_filename: filename.to_owned(),
+            mimetype: None,
+        })
+        .map(|(adapter, _)| adapter.metadata().name.clone())
+    }
+
+    #[test]
+    fn matches_by_extension_case_insensitively() {
+        assert_eq!(adapter_for("dir/settings.ini").as_deref(), Some("ini"));
+        assert_eq!(adapter_for("UPPER.TOML").as_deref(), Some("toml"));
+    }
+
+    #[test]
+    fn matches_by_file_name_case_insensitively() {
+        assert_eq!(adapter_for("/home/user/.gitconfig").as_deref(), Some("ini"));
+        assert_eq!(adapter_for("project/Cargo.lock").as_deref(), Some("toml"));
+        assert_eq!(adapter_for("project/CARGO.LOCK").as_deref(), Some("toml"));
+    }
+
+    #[test]
+    fn unknown_files_have_no_adapter() {
+        assert_eq!(adapter_for("notes.unknownext"), None);
+        assert_eq!(adapter_for(".bashrc"), None);
+        // A file name matcher must not match a longer name that merely ends
+        // with the same text.
+        assert_eq!(adapter_for("not-a-Cargo.lock"), None);
+    }
 }

@@ -20,11 +20,26 @@ fn list_adapters(args: RgaConfig) -> Result<()> {
         let matchers = meta
             .fast_matchers
             .iter()
-            .map(|m| match m {
-                FastFileMatcher::FileExtension(ext) => format!(".{ext}"),
+            .filter_map(|m| match m {
+                FastFileMatcher::FileExtension(ext) => Some(format!(".{ext}")),
+                FastFileMatcher::FileName(_) => None,
             })
             .collect::<Vec<_>>()
             .join(", ");
+        let file_names = meta
+            .fast_matchers
+            .iter()
+            .filter_map(|m| match m {
+                FastFileMatcher::FileName(name) => Some(name.clone()),
+                FastFileMatcher::FileExtension(_) => None,
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let file_names_line = if file_names.is_empty() {
+            String::new()
+        } else {
+            format!("     File names: {file_names}  \n")
+        };
         let slow_matchers = meta
             .slow_matchers
             .as_ref()
@@ -37,10 +52,11 @@ fn list_adapters(args: RgaConfig) -> Result<()> {
             .collect::<Vec<_>>()
             .join(", ");
         print!(
-            " - **{name}**\n     {desc}  \n     Extensions: {matchers}  \n     Mime Types: {mime}  \n",
+            " - **{name}**\n     {desc}  \n     Extensions: {matchers}  \n{file_names_line}     Mime Types: {mime}  \n",
             name = meta.name,
             desc = meta.description.replace('\n', "\n     "),
             matchers = matchers,
+            file_names_line = file_names_line,
             mime = slow_matchers,
         );
         println!();
@@ -93,15 +109,24 @@ fn main() -> anyhow::Result<()> {
     let adapters = get_adapters_filtered(config.custom_adapters.clone(), &config.adapters)?;
 
     let pre_glob = if !config.accurate {
-        let extensions = adapters
+        // One glob alternative per matcher: `*.ext` (plus its upper-case
+        // twin) for extensions, and the bare name for file name matchers,
+        // which ripgrep matches against the last path component.
+        let patterns = adapters
             .iter()
             .flat_map(|a| &a.metadata().fast_matchers)
             .flat_map(|m| match m {
-                FastFileMatcher::FileExtension(ext) => vec![ext.clone(), ext.to_ascii_uppercase()],
+                FastFileMatcher::FileExtension(ext) => {
+                    vec![
+                        format!("*.{ext}"),
+                        format!("*.{}", ext.to_ascii_uppercase()),
+                    ]
+                }
+                FastFileMatcher::FileName(name) => vec![name.clone()],
             })
             .collect::<Vec<_>>()
             .join(",");
-        format!("*.{{{extensions}}}")
+        format!("{{{patterns}}}")
     } else {
         "*".to_owned()
     };

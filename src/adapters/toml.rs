@@ -13,6 +13,15 @@ use toml_edit::{Document, Item, Table, TomlError, Value};
 
 static EXTENSIONS: &[&str] = &["toml"];
 
+/// TOML files whose names carry no `.toml` extension.
+static FILENAMES: &[&str] = &[
+    "Cargo.lock",
+    "Pipfile",
+    "pdm.lock",
+    "poetry.lock",
+    "uv.lock",
+];
+
 lazy_static! {
     static ref METADATA: AdapterMeta = AdapterMeta {
         name: "toml".to_owned(),
@@ -24,6 +33,11 @@ lazy_static! {
         fast_matchers: EXTENSIONS
             .iter()
             .map(|s| FastFileMatcher::FileExtension(s.to_string()))
+            .chain(
+                FILENAMES
+                    .iter()
+                    .map(|s| FastFileMatcher::FileName(s.to_string()))
+            )
             .collect(),
         slow_matchers: Some(vec![FileMatcher::MimeType("application/toml".to_owned())]),
         keep_fast_matchers_if_accurate: false,
