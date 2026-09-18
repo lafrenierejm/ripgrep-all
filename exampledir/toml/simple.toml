@@ -1,0 +1,45 @@
+# Generic TOML: scalars, collections, dotted keys, multi-line strings, tables
+title = "TOML" # trailing comment
+count = 42
+ratio = 1.5
+enabled = true
+created = 1979-05-27T07:32:00Z
+
+# Flow-style and multi-line arrays
+tags = ["developer", "rust", "python"]
+ports = [
+  80,
+  443,
+]
+empty_array = []
+empty_table = {}
+point = { x = 1, y = "two" }
+owner.name.first = "dotted"
+
+description = """
+line one
+
+line three
+"""
+literal = '''
+raw \one
+'''
+joined = """\
+  first part \
+  second part"""
+
+[server]
+host = "localhost"
+
+[server.tls]
+enabled = false
+
+[empty]
+
+[[bin]]
+name = "first"
+
+[[bin]]
+name = "second"
+
+[[nothing]]

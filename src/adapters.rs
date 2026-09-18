@@ -8,6 +8,7 @@ pub mod postproc;
 use std::sync::Arc;
 pub mod sqlite;
 pub mod tar;
+pub mod toml;
 pub mod writing;
 pub mod yaml;
 pub mod zip;
@@ -132,6 +133,7 @@ pub fn get_all_adapters(custom_adapters: Option<Vec<CustomAdapterConfig>>) -> Ad
         Arc::new(json::JsonAdapter::new()),
         Arc::new(yaml::YamlAdapter::new()),
         Arc::new(hcl::HclAdapter::new()),
+        Arc::new(toml::TomlAdapter::new()),
     ];
     adapters.extend(
         BUILTIN_SPAWNING_ADAPTERS

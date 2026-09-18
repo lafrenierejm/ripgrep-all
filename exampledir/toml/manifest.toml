@@ -1,0 +1,29 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2024"
+authors = ["Jane Doe <jane@example.com>"]
+description = "An example crate"
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "macros",
+] }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+
+[features]
+default = ["cli"]
+cli = ["dep:clap"]
+
+[[bin]]
+name = "example"
+path = "src/main.rs"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
