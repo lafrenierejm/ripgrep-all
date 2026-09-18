@@ -2,6 +2,7 @@ pub mod custom;
 pub mod decompress;
 pub mod ffmpeg;
 pub mod hcl;
+pub mod ini;
 pub mod json;
 pub mod mbox;
 pub mod postproc;
@@ -134,6 +135,7 @@ pub fn get_all_adapters(custom_adapters: Option<Vec<CustomAdapterConfig>>) -> Ad
         Arc::new(yaml::YamlAdapter::new()),
         Arc::new(hcl::HclAdapter::new()),
         Arc::new(toml::TomlAdapter::new()),
+        Arc::new(ini::IniAdapter::new()),
     ];
     adapters.extend(
         BUILTIN_SPAWNING_ADAPTERS
