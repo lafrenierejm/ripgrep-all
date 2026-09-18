@@ -1,0 +1,13 @@
+[Unit]
+Description=Example service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/example \
+    --config /etc/example.conf \
+    --verbose
+Environment="KEY=value"
+
+[Install]
+WantedBy=multi-user.target

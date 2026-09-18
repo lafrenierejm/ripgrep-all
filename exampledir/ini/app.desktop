@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Example
+Name[de]=Beispiel
+Exec=example %U
+Categories=Utility;Development;
