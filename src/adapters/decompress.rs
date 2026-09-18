@@ -68,6 +68,7 @@ fn decompress_any(reason: &FileMatcher, inp: ReadBox) -> Result<ReadBox> {
             "xz" => xz(inp),
             ext => Err(format_err!("don't know how to decompress {}", ext))?,
         },
+        Fast(FileName(name)) => Err(format_err!("don't know how to decompress {}", name))?,
         MimeType(mime) => match mime.as_ref() {
             "application/gzip" => gz(inp),
             "application/x-bzip" => bz2(inp),

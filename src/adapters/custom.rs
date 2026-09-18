@@ -44,6 +44,11 @@ pub struct CustomAdapterConfig {
     /// The file extensions this adapter supports, for example `["epub", "mobi"]`.
     pub extensions: Vec<String>,
 
+    /// Complete file names this adapter supports, for files that have no useful
+    /// extension, for example `[".gitconfig", "Cargo.lock"]`. Matched
+    /// case-insensitively against the file name only, not the directory.
+    pub filenames: Option<Vec<String>>,
+
     /// If not null and `--rga-accurate` is enabled, mimetype matching is used instead of file name matching.
     pub mimetypes: Option<Vec<String>>,
 
@@ -118,6 +123,7 @@ lazy_static! {
             description: "Uses pandoc to convert binary/unreadable text documents to plain markdown-like text".to_string(),
             version: 3,
             extensions: strs(&["epub", "odt", "docx", "fb2", "ipynb", "html", "htm"]),
+            filenames: None,
             binary: "pandoc".to_string(),
             mimetypes: None,
             // simpler markdown (with more information loss but plainer text)
@@ -139,6 +145,7 @@ lazy_static! {
                 .to_owned(),
 
             extensions: strs(&["pdf"]),
+            filenames: None,
             mimetypes: Some(strs(&["application/pdf"])),
 
             binary: "pdftotext".to_string(),
@@ -298,6 +305,12 @@ impl CustomAdapterConfig {
                     .extensions
                     .iter()
                     .map(|s| FastFileMatcher::FileExtension(s.to_string()))
+                    .chain(
+                        self.filenames
+                            .iter()
+                            .flatten()
+                            .map(|s| FastFileMatcher::FileName(s.to_string())),
+                    )
                     .collect(),
                 slow_matchers: self.mimetypes.as_ref().map(|mimetypes| {
                     mimetypes
@@ -361,6 +374,7 @@ PREFIX:Page 1:
             disabled_by_default: None,
             version: 1,
             extensions: vec!["txt".to_string()],
+            filenames: None,
             mimetypes: None,
             match_only_by_mime: None,
             binary: "sed".to_string(),

@@ -11,17 +11,30 @@ use tokio::io::{AsyncBufReadExt, AsyncWrite, BufReader};
 /// systemd units, and freedesktop `.desktop` entries. Java properties files
 /// use the same key/value lines without sections.
 static EXTENSIONS: &[&str] = &[
-    "ini",
     "cfg",
-    "conf",
     "cnf",
-    "properties",
+    "conf",
     "desktop",
+    "ini",
+    "mount",
+    "properties",
     "service",
     "socket",
-    "timer",
-    "mount",
     "target",
+    "timer",
+];
+
+/// INI-family files that have no extension to match on.
+static FILENAMES: &[&str] = &[
+    ".coveragerc",
+    ".editorconfig",
+    ".flake8",
+    ".gitconfig",
+    ".gitmodules",
+    ".hgrc",
+    ".npmrc",
+    ".pylintrc",
+    ".pypirc",
 ];
 
 lazy_static! {
@@ -34,9 +47,14 @@ lazy_static! {
         fast_matchers: EXTENSIONS
             .iter()
             .map(|s| FastFileMatcher::FileExtension(s.to_string()))
+            .chain(
+                FILENAMES
+                    .iter()
+                    .map(|s| FastFileMatcher::FileName(s.to_string()))
+            )
             .collect(),
         slow_matchers: None,
-        keep_fast_matchers_if_accurate: false,
+        keep_fast_matchers_if_accurate: true,
         disabled_by_default: false
     };
 }
