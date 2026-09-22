@@ -64,6 +64,8 @@ json-spanned-value = "0.2.2"
 saphyr = "0.0.12"
 hcl-edit = "0.9.7"
 toml_edit = "0.25.15"
+rnix = "0.14.0"
+rowan = "0.16"
 
 [dev-dependencies]
 async-recursion = "1.1.1"

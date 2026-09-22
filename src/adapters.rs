@@ -5,6 +5,7 @@ pub mod hcl;
 pub mod ini;
 pub mod json;
 pub mod mbox;
+pub mod nix;
 pub mod postproc;
 use std::sync::Arc;
 pub mod sqlite;
@@ -136,6 +137,7 @@ pub fn get_all_adapters(custom_adapters: Option<Vec<CustomAdapterConfig>>) -> Ad
         Arc::new(hcl::HclAdapter::new()),
         Arc::new(toml::TomlAdapter::new()),
         Arc::new(ini::IniAdapter::new()),
+        Arc::new(nix::NixAdapter::new()),
     ];
     adapters.extend(
         BUILTIN_SPAWNING_ADAPTERS
