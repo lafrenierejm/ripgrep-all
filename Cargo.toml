@@ -64,6 +64,8 @@ json-spanned-value = "0.2.2"
 granit-parser = "2.2.0"
 hcl-edit = "0.10.0"
 toml_edit = "0.25.20"
+rnix = "0.15.1"
+rowan = "0.17.0"
 
 [dev-dependencies]
 async-recursion = "1.1.1"

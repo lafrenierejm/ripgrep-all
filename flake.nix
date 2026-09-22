@@ -85,6 +85,7 @@
             treefmt.config = {
               projectRootFile = ".git/config";
               flakeCheck = false; # use pre-commit's check instead
+              settings.global.excludes = [ "exampledir/*" ];
               programs = {
                 nixfmt.enable = true;
                 rustfmt = {
