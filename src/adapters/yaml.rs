@@ -158,19 +158,18 @@ fn resolve_scalar(value: String, style: ScalarStyle, tagged: bool) -> Scalar {
         if let Ok(i) = i64::from_str_radix(hex, 16) {
             return Scalar::Integer(i);
         }
-    } else if let Some(oct) = value.strip_prefix("0o") {
-        if let Ok(i) = i64::from_str_radix(oct, 8) {
-            return Scalar::Integer(i);
-        }
+    } else if let Some(oct) = value.strip_prefix("0o")
+        && let Ok(i) = i64::from_str_radix(oct, 8)
+    {
+        return Scalar::Integer(i);
     }
     if value
         .bytes()
         .all(|b| b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.' | b'e' | b'E'))
         && value.bytes().any(|b| b.is_ascii_digit())
+        && let Ok(f) = value.parse::<f64>()
     {
-        if let Ok(f) = value.parse::<f64>() {
-            return Scalar::FloatingPoint(f);
-        }
+        return Scalar::FloatingPoint(f);
     }
     Scalar::String(value)
 }
